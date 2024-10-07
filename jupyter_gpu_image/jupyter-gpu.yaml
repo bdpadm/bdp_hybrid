@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hcd-jupyterlab-gpu
+  namespace: test
+  labels:
+    app: jupyterlab-gpu
+spec:
+  serviceName: jupyterlab-gpu
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jupyterlab-gpu
+  template:
+    metadata:
+      labels:
+        app: jupyterlab-gpu
+    spec:
+      containers:
+      - name: jupyterlab-gpu
+        image: harbor-standard.kuberix.co.kr/library/hcd-jupyterlab:gpu-0.8.8
+        command: ["/bin/bash", "-c"]
+        args: ["jupyter lab --ip=0.0.0.0 --allow-root --LabApp.token=''"]
+        ports:
+        - containerPort: 8888
+          name: jupyter
+        env:
+        - name: TZ
+          value: "Asia/Seoul"  # 타임존 설정
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jupyterlab-gpu-service
+  namespace: test
+  labels:
+    app: jupyterlab-gpu
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8888  # JupyterLab의 기본 포트
+      targetPort: 8888
+  selector:
+    app: jupyterlab-gpu
+

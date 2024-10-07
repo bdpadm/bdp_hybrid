@@ -1,0 +1,135 @@
+ARG REGISTRY=quay.io
+ARG OWNER=jupyter
+ARG BASE_CONTAINER=$REGISTRY/$OWNER/base-notebook:lab-4.2.5
+FROM $BASE_CONTAINER
+ENV CONDA_DIR=/data01/anaconda3
+LABEL maintainer="Hyundaicard"
+ 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ 
+USER root
+
+# Spark dependencies
+# Default values can be overridden at build time
+# (ARGS are in lowercase to distinguish them from ENV)
+ARG openjdk_version="21"
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+    "openjdk-${openjdk_version}-jre-headless" \
+    net-tools \
+    curl \
+    dnsutils \
+    rsync \
+    ca-certificates-java && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# If spark_version is not set, latest stable Spark will be installed
+ARG spark_version
+ARG hadoop_version="3"
+# If scala_version is not set, Spark without Scala will be installed
+ARG scala_version
+# URL to use for Spark downloads
+# You need to use https://archive.apache.org/dist/spark/ website if you want to download old Spark versions
+# But it seems to be slower, that's why we use the recommended site for download
+ARG spark_download_url="https://dlcdn.apache.org/spark/"
+
+ENV SPARK_HOME=/usr/local/spark
+ENV PATH="${PATH}:${SPARK_HOME}/bin"
+ENV SPARK_OPTS="--driver-java-options=-Xms1024M --driver-java-options=-Xmx4096M --driver-java-options=-Dlog4j.logLevel=info"
+
+COPY setup_spark.py /opt/setup-scripts/
+
+# Setup Spark
+RUN /opt/setup-scripts/setup_spark.py \
+    --spark-version="${spark_version}" \
+    --hadoop-version="${hadoop_version}" \
+    --scala-version="${scala_version}" \
+    --spark-download-url="${spark_download_url}"
+
+# Spark 설치 후 Zookeeper 및 Derby 버전 덮어쓰기
+# Zookeeper 3.9.2 다운로드 및 JAR 파일 복사
+RUN wget https://downloads.apache.org/zookeeper/zookeeper-3.9.2/apache-zookeeper-3.9.2-bin.tar.gz && \
+    tar -xzf apache-zookeeper-3.9.2-bin.tar.gz && \
+    cp apache-zookeeper-3.9.2-bin/lib/zookeeper-3.9.2.jar /usr/local/spark-3.5.3-bin-hadoop3/jars/ && \
+    rm -f /usr/local/spark-3.5.3-bin-hadoop3/jars/zookeeper-3.6.3.jar && \
+    rm -f /usr/local/spark-3.5.3-bin-hadoop3/jars/zookeeper-jute-3.6.3.jar && \
+    rm -rf apache-zookeeper-3.9.2-bin apache-zookeeper-3.9.2-bin.tar.gz
+
+RUN wget https://downloads.apache.org/db/derby/db-derby-10.17.1.0/db-derby-10.17.1.0-bin.tar.gz && \
+    tar -xzf db-derby-10.17.1.0-bin.tar.gz && \
+    cp db-derby-10.17.1.0-bin/lib/derby.jar /usr/local/spark-3.5.3-bin-hadoop3/jars/derby-10.17.1.0.jar && \
+    rm -rf db-derby-10.17.1.0-bin db-derby-10.17.1.0-bin.tar.gz /usr/local/spark/jars/derby-10.14.2.0.jar
+
+# Jackson-mapper-asl-1.9.13 삭제 및 최신 Jackson-databind 추가
+RUN rm -f /usr/local/spark-3.5.3-bin-hadoop3/jars/jackson-mapper-asl-1.9.13.jar && \
+    wget https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.13.3/jackson-databind-2.13.3.jar && \
+    cp jackson-databind-2.13.3.jar /usr/local/spark-3.5.3-bin-hadoop3/jars/ && \
+    rm -f jackson-databind-2.13.3.jar
+
+# Conda 경로를 영구적으로 설정
+ENV PATH="/data01/anaconda3/bin:$PATH"
+
+# Miniconda 설치 (경로를 /data01/anaconda3로 설정)
+RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-py312_24.7.1-0-Linux-x86_64.sh && \
+    bash Miniconda3-py312_24.7.1-0-Linux-x86_64.sh -b -p /data01/anaconda3 && \
+    rm Miniconda3-py312_24.7.1-0-Linux-x86_64.sh && \
+    conda clean -a -y && \
+    ln -s /data01/anaconda3/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+    echo ". /data01/anaconda3/etc/profile.d/conda.sh" >> ~/.bashrc && \
+    rm -rf /opt/conda && \
+    pip install jupyterlab jupyterlab-language-pack-ko-KR
+
+# Terminal 삭제
+RUN pip uninstall -y terminado
+
+# Conda 환경에서 BeautifulSoup 및 requests 설치
+RUN /data01/anaconda3/bin/conda install -y beautifulsoup4 requests && /data01/anaconda3/bin/conda install -c conda-forge mamba
+
+# Conda 환경 설정 및 Python 버전 설치
+RUN /data01/anaconda3/bin/conda create -y -n py309 python=3.9 ipykernel && \
+    /data01/anaconda3/bin/conda create -y -n py310 python=3.10 ipykernel && \
+    /data01/anaconda3/bin/conda create -y -n py311 python=3.11 ipykernel && \
+    /data01/anaconda3/bin/conda create -y -n py312 python=3.12 ipykernel && \
+    /data01/anaconda3/envs/py309/bin/python -m ipykernel install --name py309 --display-name "Python 3.9" && \
+    /data01/anaconda3/envs/py310/bin/python -m ipykernel install --name py310 --display-name "Python 3.10" && \
+    /data01/anaconda3/envs/py311/bin/python -m ipykernel install --name py311 --display-name "Python 3.11" && \
+    /data01/anaconda3/envs/py312/bin/python -m ipykernel install --name py312 --display-name "Python 3.12" && \
+    /data01/anaconda3/bin/conda clean -a -y
+
+# Conda 환경에 맞는 Jupyter 커널 설정 (kernel.json 생성)
+RUN mkdir -p /data01/anaconda3/share/jupyter/kernels/py309 && \
+    printf '{\n  "argv": [\n    "/data01/anaconda3/envs/py309/bin/python",\n    "-m",\n    "ipykernel_launcher",\n    "-f",\n    "{connection_file}"\n  ],\n  "display_name": "Python 3.9",\n  "language": "python"\n}' > /data01/anaconda3/share/jupyter/kernels/py309/kernel.json && \
+    \
+    mkdir -p /data01/anaconda3/share/jupyter/kernels/py310 && \
+    printf '{\n  "argv": [\n    "/data01/anaconda3/envs/py310/bin/python",\n    "-m",\n    "ipykernel_launcher",\n    "-f",\n    "{connection_file}"\n  ],\n  "display_name": "Python 3.10",\n  "language": "python"\n}' > /data01/anaconda3/share/jupyter/kernels/py310/kernel.json && \
+    \
+    mkdir -p /data01/anaconda3/share/jupyter/kernels/py311 && \
+    printf '{\n  "argv": [\n    "/data01/anaconda3/envs/py311/bin/python",\n    "-m",\n    "ipykernel_launcher",\n    "-f",\n    "{connection_file}"\n  ],\n  "display_name": "Python 3.11",\n  "language": "python"\n}' > /data01/anaconda3/share/jupyter/kernels/py311/kernel.json && \
+    \
+    mkdir -p /data01/anaconda3/share/jupyter/kernels/py312 && \
+    printf '{\n  "argv": [\n    "/data01/anaconda3/envs/py312/bin/python",\n    "-m",\n    "ipykernel_launcher",\n    "-f",\n    "{connection_file}"\n  ],\n  "display_name": "Python 3.12",\n  "language": "python"\n}' > /data01/anaconda3/share/jupyter/kernels/py312/kernel.json
+
+# TimeZone 설정
+ENV TZ=Asia/Seoul
+RUN ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime
+
+RUN mamba install --yes \
+    'grpcio-status' \
+    'grpcio' \
+    'pandas' \
+    'pyarrow' \
+    -c conda-forge && \
+    mamba clean --all -f -y
+
+# Configure IPython system-wide
+COPY ipython_kernel_config.py "/etc/ipython/"
+RUN find /data01/anaconda3 -xtype l -delete && \
+    conda clean -a -y && \
+    fix-permissions "/etc/ipython/" && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+
+USER ${NB_UID}
+ 
+WORKDIR "${HOME}"
+EXPOSE 4040
