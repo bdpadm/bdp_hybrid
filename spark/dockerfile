@@ -1,0 +1,31 @@
+FROM spark:3.4.2-scala2.12-java11-ubuntu
+
+USER root
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3.10 python3-pip && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# aws 라이브러리 다운로드
+RUN wget https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.696/aws-java-sdk-bundle-1.12.696.jar -P /opt/spark/jars/
+RUN wget https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar -P /opt/spark/jars/
+
+# Zookeeper 3.9.2 다운로드 및 JAR 파일 복사
+RUN wget https://downloads.apache.org/zookeeper/zookeeper-3.9.2/apache-zookeeper-3.9.2-bin.tar.gz && \
+    tar -xzf apache-zookeeper-3.9.2-bin.tar.gz && \
+    cp apache-zookeeper-3.9.2-bin/lib/zookeeper-3.9.2.jar /opt/spark/jars/ && \
+    rm -f /opt/spark/jars/zookeeper-3.6.3.jar && \
+    rm -f /opt/spark/jars/zookeeper-jute-3.6.3.jar && \
+    rm -rf apache-zookeeper-3.9.2-bin apache-zookeeper-3.9.2-bin.tar.gz
+
+# Derby 10.17.1.0 다운로드 및 기존 Derby 10.14.2.0 파일 삭제
+RUN wget https://downloads.apache.org/db/derby/db-derby-10.17.1.0/db-derby-10.17.1.0-bin.tar.gz && \
+    tar -xzf db-derby-10.17.1.0-bin.tar.gz && \
+    cp db-derby-10.17.1.0-bin/lib/derby.jar /opt/spark/jars/derby-10.17.1.0.jar && \
+    rm -rf db-derby-10.17.1.0-bin db-derby-10.17.1.0-bin.tar.gz /opt/spark/jars/derby-10.14.2.0.jar
+
+# Jackson-mapper-asl-1.9.13 삭제 및 최신 Jackson-databind 추가
+RUN rm -f /opt/spark/jars/jackson-mapper-asl-1.9.13.jar && \
+    wget https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.13.3/jackson-databind-2.13.3.jar -P /opt/spark/jars/
+
+USER spark
