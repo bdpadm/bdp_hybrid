@@ -4,9 +4,9 @@ ARG BASE_CONTAINER=$REGISTRY/$OWNER/base-notebook:lab-4.2.5
 FROM $BASE_CONTAINER
 ENV CONDA_DIR=/data01/anaconda3
 LABEL maintainer="Hyundaicard"
- 
+
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
- 
+
 USER root
 
 # Spark dependencies
@@ -66,6 +66,12 @@ RUN rm -f /usr/local/spark-3.5.3-bin-hadoop3/jars/jackson-mapper-asl-1.9.13.jar 
     cp jackson-databind-2.13.3.jar /usr/local/spark-3.5.3-bin-hadoop3/jars/ && \
     rm -f jackson-databind-2.13.3.jar
 
+# 기존 Spark 설치 후, Apache Avro 1.11.4 버전으로 업데이트
+RUN rm -f /usr/local/spark-3.5.3-bin-hadoop3/jars/avro* && \
+    wget https://repo1.maven.org/maven2/org/apache/avro/avro/1.11.4/avro-1.11.4.jar && \
+    cp avro-1.11.4.jar /usr/local/spark-3.5.3-bin-hadoop3/jars/ && \
+    rm -f avro-1.11.4.jar
+
 # Conda 경로를 영구적으로 설정
 ENV PATH="/data01/anaconda3/bin:$PATH"
 
@@ -77,7 +83,7 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-py312_24.7.1-0-L
     ln -s /data01/anaconda3/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
     echo ". /data01/anaconda3/etc/profile.d/conda.sh" >> ~/.bashrc && \
     rm -rf /opt/conda && \
-    pip install jupyterlab jupyterlab-language-pack-ko-KR
+    pip install jupyterlab jupyterlab-language-pack-ko-KR minio boto3 configparser
 
 # Terminal 삭제
 RUN pip uninstall -y terminado
@@ -130,6 +136,6 @@ RUN find /data01/anaconda3 -xtype l -delete && \
     fix-permissions "/home/${NB_USER}"
 
 USER ${NB_UID}
- 
+
 WORKDIR "${HOME}"
 EXPOSE 4040
