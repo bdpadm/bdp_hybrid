@@ -1,4 +1,7 @@
 FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
+#FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
+
+LABEL maintainer="Hyundaicard"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -39,19 +42,48 @@ RUN apt-get update && \
     libcudnn8-dev=$CUDNN_VERSION-1+cuda12.1 --allow-change-held-packages && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# jupyter 및 python library 설치
-RUN pip install jupyterlab jupyterlab-language-pack-ko-KR minio boto3 configparser torch numpy torchvision torchaudio torchtext tensorflow
+# Miniconda 설치 (경로를 /data01/anaconda3로 설정)
+RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-py312_24.7.1-0-Linux-x86_64.sh && \
+    bash Miniconda3-py312_24.7.1-0-Linux-x86_64.sh -b -p /data01/anaconda3 && \
+    rm Miniconda3-py312_24.7.1-0-Linux-x86_64.sh && \
+    conda clean -a -y && \
+    ln -s /data01/anaconda3/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+    echo ". /data01/anaconda3/etc/profile.d/conda.sh" >> ~/.bashrc && \
+    pip install jupyterlab jupyterlab-language-pack-ko-KR minio boto3 configparser torch numpy torchvision torchaudio torchtext
 
 # Terminal 삭제
 RUN pip uninstall -y terminado
+
+# Conda 경로를 영구적으로 설정
+ENV PATH="/data01/anaconda3/bin:$PATH"
+
+# Conda 환경에서 BeautifulSoup 및 requests 설치
+#RUN /data01/anaconda3/bin/conda install -y beautifulsoup4 requests && \
+#    /data01/anaconda3/bin/conda install -c conda-forge mamba
+
+# Conda 환경 설정 및 Python 버전 설치
+RUN /data01/anaconda3/bin/conda create -y -n py309 python=3.9 ipykernel && \
+    /data01/anaconda3/bin/conda create -y -n py310 python=3.10 ipykernel && \
+    /data01/anaconda3/envs/py309/bin/python -m ipykernel install --name py309 --display-name "Python 3.9" && \
+    /data01/anaconda3/envs/py310/bin/python -m ipykernel install --name py310 --display-name "Python 3.10" && \
+    /data01/anaconda3/bin/conda clean -a -y
 
 # TimeZone 설정
 ENV TZ=Asia/Seoul
 RUN ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime
 
+#RUN mamba install --yes \
+#    'grpcio-status' \
+#    'grpcio' \
+#    'pandas' \
+#    'pyarrow' \
+#    -c conda-forge && \
+#    mamba clean --all -f -y
+
 # jovyan 사용자 생성 및 홈 디렉터리 설정
 COPY ipython_kernel_config.py "/etc/ipython/"
 RUN useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
+    chown -R $NB_USER:$NB_GID /data01/anaconda3 && \
     chown -R $NB_USER:$NB_GID /home/$NB_USER && \
     chown -R $NB_USER:$NB_GID /etc/ipython
 
