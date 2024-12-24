@@ -1,0 +1,65 @@
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# 환경 변수 설정
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/data01/anaconda3/bin:$PATH"
+ENV NB_USER=jovyan
+ENV NB_UID=1000
+ENV NB_GID=100
+ENV HOME=/home/$NB_USER
+ENV CUDNN_VERSION=8.9.3.28
+
+# 사용자 권한을 root로 변경
+USER root
+
+# 필요한 패키지 설치 및 최적화
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    net-tools \
+    curl \
+    build-essential \
+    wget \
+    git \
+    python3-pip \
+    nvidia-utils-535=535.161.07-0ubuntu1 \
+    libnvidia-compute-535=535.161.07-0ubuntu1 \
+    linux-libc-dev \
+    libssl-dev \
+    libffi-dev \
+    libbz2-dev \
+    libsqlite3-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libcudnn8=$CUDNN_VERSION-1+cuda12.1 \
+    libcudnn8-dev=$CUDNN_VERSION-1+cuda12.1 --allow-change-held-packages && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# jupyter 및 python library 설치
+RUN pip install jupyterlab jupyterlab-language-pack-ko-KR minio boto3 configparser torch numpy torchvision torchaudio torchtext tensorflow
+
+# Terminal 삭제
+RUN pip uninstall -y terminado
+
+# TimeZone 설정
+ENV TZ=Asia/Seoul
+RUN ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime
+
+# jovyan 사용자 생성 및 홈 디렉터리 설정
+COPY ipython_kernel_config.py "/etc/ipython/"
+RUN useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
+    chown -R $NB_USER:$NB_GID /home/$NB_USER && \
+    chown -R $NB_USER:$NB_GID /etc/ipython
+
+# 사용자 권한을 jovyan으로 변경
+USER $NB_UID
+
+# 기본 작업 디렉터리 설정 (jovyan 홈 디렉터리)
+WORKDIR /home/$NB_USER
+
+# JupyterLab 실행
+CMD ["/bin/bash", "-c", "jupyter lab --ip=0.0.0.0 --allow-root --LabApp.token=''"]
